@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Brief, Idea, Material, Folder, Review, Proposal, IdeaType, CostLevel } from '../types';
+import type { Brief, Idea, Material, Folder, Review, Proposal, IdeaType, CostLevel, IdeaStatus } from '../types';
 
 interface AppStore {
   briefs: Brief[];
@@ -22,6 +22,7 @@ interface AppStore {
   toggleLike: (ideaId: string) => void;
   updateIdeaCost: (ideaId: string, cost: CostLevel) => void;
   updateIdeaTags: (ideaId: string, tags: string[]) => void;
+  updateIdeaStatus: (ideaId: string, status: IdeaStatus) => void;
   mergeIdeas: (ideaIds: string[], title: string, content: string) => void;
   deleteIdea: (ideaId: string) => void;
   addMaterial: (material: Material) => void;
@@ -29,6 +30,7 @@ interface AppStore {
   addFolder: (folder: Folder) => void;
   deleteFolder: (folderId: string) => void;
   addReview: (review: Review) => void;
+  submitReview: (reviewId: string) => void;
   updateReviewStatus: (reviewId: string, status: Review['status']) => void;
   addProposal: (proposal: Proposal) => void;
   setSelectedIdeas: (ideaIds: string[]) => void;
@@ -69,7 +71,7 @@ export const useStore = create<AppStore>()(
             i => i.title === idea.title && i.content === idea.content && i.type === idea.type
           );
           if (exists) return state;
-          return { ideas: [idea, ...state.ideas] };
+          return { ideas: [{ ...idea, status: idea.status || 'pending' }, ...state.ideas] };
         }),
 
       isIdeaLiked: (ideaId) => {
@@ -105,6 +107,13 @@ export const useStore = create<AppStore>()(
           ),
         })),
 
+      updateIdeaStatus: (ideaId, status) =>
+        set((state) => ({
+          ideas: state.ideas.map((idea) =>
+            idea.id === ideaId ? { ...idea, status } : idea
+          ),
+        })),
+
       mergeIdeas: (ideaIds, title, content) =>
         set((state) => {
           const mergedIdea: Idea = {
@@ -117,6 +126,7 @@ export const useStore = create<AppStore>()(
             cost: 'medium',
             tags: ['merged'],
             liked: true,
+            status: 'pending',
             createdAt: Date.now(),
           };
           return {
@@ -128,6 +138,7 @@ export const useStore = create<AppStore>()(
       deleteIdea: (ideaId) =>
         set((state) => ({
           ideas: state.ideas.filter((idea) => idea.id !== ideaId),
+          selectedForProposal: state.selectedForProposal.filter(id => id !== ideaId),
         })),
 
       addMaterial: (material) =>
@@ -158,6 +169,13 @@ export const useStore = create<AppStore>()(
           reviews: [...state.reviews, review],
         })),
 
+      submitReview: (reviewId) =>
+        set((state) => ({
+          reviews: state.reviews.map((review) =>
+            review.id === reviewId ? { ...review, status: 'approved' as Review['status'] } : review
+          ),
+        })),
+
       updateReviewStatus: (reviewId, status) =>
         set((state) => ({
           reviews: state.reviews.map((review) =>
@@ -168,7 +186,6 @@ export const useStore = create<AppStore>()(
       addProposal: (proposal) =>
         set((state) => ({
           proposals: [proposal, ...state.proposals],
-          selectedForProposal: [],
         })),
 
       setSelectedIdeas: (ideaIds) =>
@@ -216,6 +233,8 @@ export const useStore = create<AppStore>()(
         reviews: state.reviews,
         proposals: state.proposals,
         colleagues: state.colleagues,
+        currentBrief: state.currentBrief,
+        selectedForProposal: state.selectedForProposal,
       }),
     }
   )

@@ -118,6 +118,7 @@ export function generateIdeas(
       cost: ['high', 'medium', 'low'][Math.floor(Math.random() * 3)] as 'high' | 'medium' | 'low',
       tags: [type, audience.ageRange, brand.tone].filter(Boolean),
       liked: false,
+      status: 'pending',
       createdAt: Date.now(),
     };
 

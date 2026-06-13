@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
@@ -28,13 +28,22 @@ const styles = ['潮流', '温情', '搞笑', '科技感', '复古', '简约', '
 
 export function GeneratePage() {
   const navigate = useNavigate();
-  const { currentBrief, addIdea, ideas } = useStore();
+  const { currentBrief, addIdea, ideas, setCurrentBrief } = useStore();
   const [selectedType, setSelectedType] = useState<IdeaType>('title');
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [generatedIdeas, setGeneratedIdeas] = useState<Idea[]>([]);
-  const [likedIdeaIds, setLikedIdeaIds] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentBrief && ideas.length > 0) {
+      const lastIdea = ideas[0];
+      const relatedBrief = ideas.find(i => i.id === lastIdea.briefId) ? lastIdea.briefId : null;
+      if (relatedBrief) {
+        const brief = ideas.find(i => i.id === relatedBrief);
+      }
+    }
+  }, []);
 
   const handleGenerate = async () => {
     if (!currentBrief) {
@@ -47,59 +56,35 @@ export function GeneratePage() {
     
     await new Promise(resolve => setTimeout(resolve, 1500));
     
-    const ideas = generateIdeas(currentBrief, selectedType, 6, selectedStyles);
+    const newIdeas = generateIdeas(currentBrief, selectedType, 6, selectedStyles);
     
-    const existingTitles = new Set(
-      ideas.map(i => `${i.title}-${i.type}`)
-    );
-    const existingInPool = ideas.filter(idea => 
-      ideas.some(existing => 
-        existing.id !== idea.id && 
-        existing.title === idea.title && 
-        existing.type === idea.type
-      )
-    );
-    
-    const existingPoolTitles = new Set(
-      ideas.map(i => `${i.title}-${i.type}`)
-    );
-    
-    const newIdeas = ideas.map(idea => {
-      const isInPool = existingPoolTitles.has(`${idea.title}-${idea.type}`);
-      return { ...idea, liked: isInPool };
+    const newIdeasWithLiked = newIdeas.map(idea => {
+      const existsInPool = ideas.some(
+        existing => existing.title === idea.title && 
+                    existing.content === idea.content && 
+                    existing.type === idea.type
+      );
+      return { ...idea, liked: existsInPool };
     });
     
-    setGeneratedIdeas(newIdeas);
-    
-    const newLikedIds = new Set<string>();
-    newIdeas.forEach(idea => {
-      if (existingPoolTitles.has(`${idea.title}-${idea.type}`)) {
-        newLikedIds.add(idea.id);
-      }
-    });
-    setLikedIdeaIds(newLikedIds);
-    
+    setGeneratedIdeas(newIdeasWithLiked);
     setIsGenerating(false);
   };
 
   const handleLike = (idea: Idea) => {
-    const isInPool = ideas.some(
-      i => i.title === idea.title && i.content === idea.content && i.type === idea.type
+    const existsInPool = ideas.some(
+      existing => existing.title === idea.title && 
+                  existing.content === idea.content && 
+                  existing.type === idea.type
     );
     
-    if (!isInPool) {
+    if (!existsInPool) {
       addIdea({ ...idea, liked: true });
+      
+      setGeneratedIdeas(prev => prev.map(i => 
+        i.id === idea.id ? { ...i, liked: true } : i
+      ));
     }
-    
-    setLikedIdeaIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(idea.id)) {
-        newSet.delete(idea.id);
-      } else {
-        newSet.add(idea.id);
-      }
-      return newSet;
-    });
   };
 
   const toggleStyle = (style: string) => {
@@ -118,9 +103,12 @@ export function GeneratePage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const isIdeaLiked = (idea: Idea) => {
-    return likedIdeaIds.has(idea.id) || 
-      ideas.some(i => i.title === idea.title && i.content === idea.content && i.type === idea.type);
+  const isIdeaInPool = (idea: Idea) => {
+    return ideas.some(
+      existing => existing.title === idea.title && 
+                  existing.content === idea.content && 
+                  existing.type === idea.type
+    );
   };
 
   if (!currentBrief) {
@@ -256,7 +244,7 @@ export function GeneratePage() {
           {generatedIdeas.length > 0 && (
             <div className="space-y-4">
               {generatedIdeas.map((idea, index) => {
-                const isLiked = isIdeaLiked(idea);
+                const isLiked = isIdeaInPool(idea);
                 return (
                   <motion.div
                     key={idea.id}
@@ -292,8 +280,10 @@ export function GeneratePage() {
                         </button>
                         <button
                           onClick={() => handleLike(idea)}
-                          className="p-2 rounded-lg bg-dark-200 hover:bg-dark transition-colors"
-                          title={isLiked ? "已收藏" : "收藏到方案池"}
+                          className={`p-2 rounded-lg bg-dark-200 hover:bg-dark transition-colors ${
+                            isLiked ? 'cursor-default' : ''
+                          }`}
+                          title={isLiked ? "已收藏到方案池" : "收藏到方案池"}
                         >
                           <Heart className={`w-5 h-5 ${
                             isLiked 

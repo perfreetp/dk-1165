@@ -12,11 +12,21 @@ import {
   Users,
   Plus,
   X,
-  UserPlus
+  UserPlus,
+  Check,
+  RefreshCw,
+  XCircle
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { generateStoryboard } from '../services/aiService';
-import type { Idea, Review, ReviewScores, Proposal, Comment } from '../types';
+import type { Idea, Review, ReviewScores, Proposal, Comment, IdeaStatus } from '../types';
+
+const statusConfig = {
+  passed: { label: '通过', color: 'bg-green-500/20 text-green-400 border-green-500/30', icon: Check },
+  revision: { label: '待修改', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', icon: RefreshCw },
+  rejected: { label: '淘汰', color: 'bg-red-500/20 text-red-400 border-red-500/30', icon: XCircle },
+  pending: { label: '待评审', color: 'bg-slate-500/20 text-slate-400 border-slate-500/30', icon: Clock },
+};
 
 export function ReviewPage() {
   const { 
@@ -28,7 +38,9 @@ export function ReviewPage() {
     addReview, 
     addProposal,
     addColleague,
-    removeColleague
+    removeColleague,
+    updateIdeaStatus,
+    submitReview
   } = useStore();
 
   const likedIdeas = ideas.filter(idea => idea.liked);
@@ -46,26 +58,60 @@ export function ReviewPage() {
   const [newColleagueName, setNewColleagueName] = useState('');
   const [assignModal, setAssignModal] = useState<{ ideaId: string; ideaTitle: string } | null>(null);
   const [selectedColleagues, setSelectedColleagues] = useState<string[]>([]);
+  const [proposalSource, setProposalSource] = useState<'selected' | 'passed' | 'both'>('both');
 
   const handleSubmitReview = () => {
     if (!selectedIdea || !reviewerName) return;
 
-    const review: Review = {
-      id: `review-${Date.now()}`,
-      ideaId: selectedIdea.id,
-      reviewer: reviewerName,
-      scores,
-      comments: comment.trim() ? [{
-        id: `comment-${Date.now()}`,
-        author: reviewerName,
-        content: comment,
-        createdAt: Date.now(),
-      }] : [],
-      status: 'pending',
-      createdAt: Date.now(),
-    };
+    const existingReview = reviews.find(
+      r => r.ideaId === selectedIdea.id && r.reviewer === reviewerName
+    );
 
-    addReview(review);
+    if (existingReview) {
+      const updatedReview: Review = {
+        ...existingReview,
+        scores,
+        comments: comment.trim() 
+          ? [...existingReview.comments, {
+              id: `comment-${Date.now()}`,
+              author: reviewerName,
+              content: comment,
+              createdAt: Date.now(),
+            }]
+          : existingReview.comments,
+        status: 'approved',
+        createdAt: Date.now(),
+      };
+
+      const updatedReviews = reviews.map(r => 
+        r.id === existingReview.id ? updatedReview : r
+      );
+      
+      const newReviews = updatedReviews.filter(r => r.id !== existingReview.id);
+      addReview(updatedReview);
+      newReviews.forEach(r => {
+        if (r.id !== updatedReview.id) {
+          addReview(r);
+        }
+      });
+    } else {
+      const review: Review = {
+        id: `review-${Date.now()}`,
+        ideaId: selectedIdea.id,
+        reviewer: reviewerName,
+        scores,
+        comments: comment.trim() ? [{
+          id: `comment-${Date.now()}`,
+          author: reviewerName,
+          content: comment,
+          createdAt: Date.now(),
+        }] : [],
+        status: 'approved',
+        createdAt: Date.now(),
+      };
+      addReview(review);
+    }
+
     setComment('');
     setReviewerName('');
     setScores({ creativity: 0, feasibility: 0, alignment: 0 });
@@ -83,36 +129,61 @@ export function ReviewPage() {
     if (!assignModal || selectedColleagues.length === 0) return;
     
     selectedColleagues.forEach(colleague => {
-      const review: Review = {
-        id: `review-${Date.now()}-${colleague}`,
-        ideaId: assignModal.ideaId,
-        reviewer: colleague,
-        scores: { creativity: 0, feasibility: 0, alignment: 0 },
-        comments: [],
-        status: 'pending',
-        createdAt: Date.now(),
-      };
-      addReview(review);
+      const existingReview = reviews.find(
+        r => r.ideaId === assignModal.ideaId && r.reviewer === colleague
+      );
+      
+      if (!existingReview) {
+        const review: Review = {
+          id: `review-${Date.now()}-${colleague}`,
+          ideaId: assignModal.ideaId,
+          reviewer: colleague,
+          scores: { creativity: 0, feasibility: 0, alignment: 0 },
+          comments: [],
+          status: 'pending',
+          createdAt: Date.now(),
+        };
+        addReview(review);
+      }
     });
     
     setAssignModal(null);
     setSelectedColleagues([]);
   };
 
+  const handleUpdateIdeaStatus = (ideaId: string, status: IdeaStatus) => {
+    updateIdeaStatus(ideaId, status);
+  };
+
   const handleGenerateProposal = () => {
     if (!proposalName.trim()) return;
 
-    const selectedIdeasList = ideas.filter(idea => selectedForProposal.includes(idea.id));
-    
-    if (selectedIdeasList.length === 0) {
-      alert('请先在方案池中选择入选方案');
+    let ideaIds: string[] = [];
+
+    if (proposalSource === 'selected') {
+      ideaIds = selectedForProposal;
+    } else if (proposalSource === 'passed') {
+      ideaIds = ideas
+        .filter(i => i.status === 'passed' && i.liked)
+        .map(i => i.id);
+    } else {
+      const passedIds = ideas
+        .filter(i => i.status === 'passed' && i.liked)
+        .map(i => i.id);
+      ideaIds = [...new Set([...passedIds, ...selectedForProposal])];
+    }
+
+    if (ideaIds.length === 0) {
+      alert('没有符合条件的方案');
       return;
     }
+
+    const selectedIdeasList = ideas.filter(idea => ideaIds.includes(idea.id));
 
     const proposal: Proposal = {
       id: `proposal-${Date.now()}`,
       name: proposalName,
-      ideaIds: selectedForProposal,
+      ideaIds,
       outline: generateProposalOutline(selectedIdeasList),
       status: 'draft',
       createdAt: Date.now(),
@@ -126,7 +197,7 @@ export function ReviewPage() {
     const outline = `# 创意提案大纲
 
 ## 项目概述
-整合 ${selectedIdeas.length} 个入选创意方案
+整合 ${selectedIdeas.length} 个创意方案
 
 ---
 
@@ -138,7 +209,7 @@ ${selectedIdeas.map((idea, index) => `
 **类型**: ${idea.type === 'title' ? '标题' : idea.type === 'script' ? '脚本' : idea.type === 'poster' ? '海报文案' : '活动玩法'}
 **成本评估**: ${idea.cost === 'high' ? '高' : idea.cost === 'medium' ? '中' : '低'}
 **风格**: ${idea.style.join(', ')}
-**标签**: ${idea.tags.join(', ')}
+**状态**: ${statusConfig[idea.status]?.label || '待评审'}
 
 #### 详细内容
 ${idea.content}
@@ -207,6 +278,18 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
     return ideaReviews.flatMap(r => r.comments).sort((a, b) => b.createdAt - a.createdAt);
   };
 
+  const getPendingReviewers = (ideaId: string) => {
+    return getIdeaReviews(ideaId)
+      .filter(r => r.status === 'pending' && r.scores.creativity === 0)
+      .map(r => r.reviewer);
+  };
+
+  const getColleaguePendingCount = (colleagueName: string) => {
+    return reviews.filter(
+      r => r.reviewer === colleagueName && r.status === 'pending' && r.scores.creativity === 0
+    ).length;
+  };
+
   return (
     <div className="max-w-7xl mx-auto">
       <motion.div
@@ -245,8 +328,8 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
               <div className="space-y-3">
                 {likedIdeas.map(idea => {
                   const avgScore = averageScore(idea.id);
-                  const ideaReviews = getIdeaReviews(idea.id);
-                  const pendingReviews = ideaReviews.filter(r => r.status === 'pending' && r.scores.creativity === 0);
+                  const pendingReviewers = getPendingReviewers(idea.id);
+                  const StatusIcon = statusConfig[idea.status]?.icon || Clock;
                   
                   return (
                     <div
@@ -258,13 +341,16 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
                       }`}
                     >
                       <div className="flex items-start justify-between mb-2">
-                        <div 
-                          className="flex-1 cursor-pointer"
-                          onClick={() => setSelectedIdea(idea)}
-                        >
-                          <h4 className="font-medium text-slate-100 mb-1">
-                            {idea.title}
-                          </h4>
+                        <div className="flex-1 cursor-pointer" onClick={() => setSelectedIdea(idea)}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-medium text-slate-100">
+                              {idea.title}
+                            </h4>
+                            <span className={`px-2 py-0.5 text-xs rounded border flex items-center gap-1 ${statusConfig[idea.status]?.color}`}>
+                              <StatusIcon className="w-3 h-3" />
+                              {statusConfig[idea.status]?.label}
+                            </span>
+                          </div>
                           <p className="text-sm text-slate-400 line-clamp-2">
                             {idea.content.substring(0, 80)}...
                           </p>
@@ -278,23 +364,17 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
                           ) : (
                             <span className="text-xs text-slate-500">待评审</span>
                           )}
-                          {pendingReviews.length > 0 && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAssignModal({ ideaId: idea.id, ideaTitle: idea.title });
-                                setSelectedColleagues(pendingReviews.map(r => r.reviewer));
-                              }}
-                              className="ml-2 px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded flex items-center gap-1"
-                            >
+                          {pendingReviewers.length > 0 && (
+                            <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded flex items-center gap-1">
                               <Clock className="w-3 h-3" />
-                              {pendingReviews.length}人待评
-                            </button>
+                              {pendingReviewers.length}人待评
+                            </span>
                           )}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               setAssignModal({ ideaId: idea.id, ideaTitle: idea.title });
+                              setSelectedColleagues(pendingReviewers);
                             }}
                             className="ml-2 p-1 bg-dark hover:bg-dark-100 rounded text-slate-400 hover:text-primary transition-colors"
                             title="分配评审"
@@ -326,12 +406,37 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
               className="card"
             >
               <div className="mb-6">
-                <h3 className="text-lg font-bold text-slate-100 mb-2">
-                  {selectedIdea.title}
-                </h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-lg font-bold text-slate-100">
+                    {selectedIdea.title}
+                  </h3>
+                  <span className={`px-2 py-0.5 text-xs rounded border flex items-center gap-1 ${statusConfig[selectedIdea.status]?.color}`}>
+                    {statusConfig[selectedIdea.status]?.label}
+                  </span>
+                </div>
                 <p className="text-slate-400 text-sm whitespace-pre-line">
                   {selectedIdea.content}
                 </p>
+              </div>
+
+              <div className="flex gap-3 mb-6">
+                {(['passed', 'revision', 'rejected'] as IdeaStatus[]).map(status => {
+                  const StatusIcon = statusConfig[status].icon;
+                  return (
+                    <button
+                      key={status}
+                      onClick={() => handleUpdateIdeaStatus(selectedIdea.id, status)}
+                      className={`px-4 py-2 rounded-lg border transition-all flex items-center gap-2 ${
+                        selectedIdea.status === status
+                          ? statusConfig[status].color
+                          : 'bg-dark-200 border-slate-700 text-slate-400 hover:border-slate-600'
+                      }`}
+                    >
+                      <StatusIcon className="w-4 h-4" />
+                      {statusConfig[status].label}
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="space-y-4 mb-6">
@@ -506,9 +611,7 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
                 </p>
               ) : (
                 colleagues.map(name => {
-                  const pendingCount = reviews.filter(
-                    r => r.reviewer === name && r.status === 'pending' && r.scores.creativity === 0
-                  ).length;
+                  const pendingCount = getColleaguePendingCount(name);
                   
                   return (
                     <div
@@ -564,16 +667,48 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  提案来源
+                </label>
+                <div className="space-y-2">
+                  {[
+                    { value: 'both', label: '已通过 + 手动勾选', desc: '自动包含已通过方案和手动勾选的入选方案' },
+                    { value: 'passed', label: '仅已通过', desc: '只包含状态为"通过"的方案' },
+                    { value: 'selected', label: '仅手动勾选', desc: '只包含方案池中手动勾选的入选方案' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setProposalSource(opt.value as typeof proposalSource)}
+                      className={`w-full p-3 rounded-lg border text-left transition-all ${
+                        proposalSource === opt.value
+                          ? 'bg-primary/20 border-primary'
+                          : 'bg-dark-200 border-slate-700 hover:border-slate-600'
+                      }`}
+                    >
+                      <div className="font-medium text-slate-100">{opt.label}</div>
+                      <div className="text-xs text-slate-500 mt-1">{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="p-3 bg-dark-200 rounded-lg">
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-400">入选方案数</span>
-                  <span className="text-green-400 font-bold">{selectedForProposal.length}</span>
+                  <span className="text-slate-400">已通过方案</span>
+                  <span className="text-green-400 font-bold">
+                    {ideas.filter(i => i.status === 'passed' && i.liked).length}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm mt-2">
+                  <span className="text-slate-400">手动勾选</span>
+                  <span className="text-primary font-bold">{selectedForProposal.length}</span>
                 </div>
               </div>
 
               <button
                 onClick={handleGenerateProposal}
-                disabled={!proposalName.trim() || selectedForProposal.length === 0}
+                disabled={!proposalName.trim()}
                 className="w-full btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Download className="w-5 h-5" />

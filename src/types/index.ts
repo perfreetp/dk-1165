@@ -27,6 +27,8 @@ export interface Brief {
 
 export type IdeaType = 'title' | 'script' | 'poster' | 'activity';
 export type CostLevel = 'high' | 'medium' | 'low';
+export type ReviewStatus = 'pending' | 'approved' | 'revision';
+export type IdeaStatus = 'pending' | 'passed' | 'revision' | 'rejected';
 
 export interface Idea {
   id: string;
@@ -38,6 +40,7 @@ export interface Idea {
   cost: CostLevel;
   tags: string[];
   liked: boolean;
+  status: IdeaStatus;
   createdAt: number;
 }
 
@@ -69,8 +72,6 @@ export interface ReviewScores {
   alignment: number;
 }
 
-export type ReviewStatus = 'pending' | 'approved' | 'revision';
-
 export interface Review {
   id: string;
   ideaId: string;
@@ -99,4 +100,5 @@ export interface AppState {
   proposals: Proposal[];
   currentBrief: Brief | null;
   selectedIdeas: string[];
+  selectedForProposal: string[];
 }
