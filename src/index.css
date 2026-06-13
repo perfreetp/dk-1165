@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  @apply bg-dark text-slate-100;
+  min-height: 100vh;
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-6 py-3 bg-gradient-to-r from-primary to-secondary text-white font-medium rounded-lg
+           hover:shadow-lg hover:shadow-primary/30 transition-all duration-300
+           active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 bg-dark-100 text-slate-100 font-medium rounded-lg border border-slate-700
+           hover:bg-dark-200 hover:border-primary/50 transition-all duration-300;
+  }
+
+  .card {
+    @apply bg-dark-100 rounded-xl border border-slate-700/50 p-6
+           hover:border-primary/30 hover:shadow-xl hover:shadow-primary/10
+           transition-all duration-300;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 bg-dark text-slate-100 rounded-lg border border-slate-700
+           focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none
+           transition-all duration-200 placeholder-slate-500;
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent;
+    background-size: 200% auto;
+  }
+
+  .glass-effect {
+    @apply bg-dark-100/80 backdrop-blur-lg border border-slate-700/50;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #475569 transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #475569;
+    border-radius: 3px;
+  }
+}
