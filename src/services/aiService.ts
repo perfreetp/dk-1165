@@ -30,11 +30,61 @@ const scriptTemplates = {
   ],
 };
 
-const styles = ['潮流', '温情', '搞笑', '科技感', '复古', '简约', '高级感', '活泼'];
+const styleTemplates: Record<string, string[]> = {
+  '潮流': [
+    "采用撞色设计和动态效果，视觉冲击力强，符合年轻群体审美",
+    "融入街头文化和时尚元素，展现独特个性",
+    "使用渐变色彩和现代排版，引领潮流趋势",
+  ],
+  '温情': [
+    "以情感故事为切入点，触动用户内心",
+    "营造家庭氛围和人文关怀，传递温暖",
+    "采用柔和色调和慢节奏叙事，引发共鸣",
+  ],
+  '搞笑': [
+    "设置反转和意外情节，制造惊喜效果",
+    "运用幽默对白和夸张表演，引人发笑",
+    "结合网络热点和梗文化，增加趣味性",
+  ],
+  '科技感': [
+    "使用蓝光霓虹和几何线条，展现科技美学",
+    "采用3D建模和粒子效果，突出未来感",
+    "结合AI和数据可视化，增强专业度",
+  ],
+  '复古': [
+    "运用胶片滤镜和老式字体，唤起怀旧感",
+    "融合80年代霓虹风格，复刻经典",
+    "采用 VHS 录像带效果，增加年代感",
+  ],
+  '简约': [
+    "采用大面积留白和极简设计，突出核心信息",
+    "使用单一色系和简洁图形，传达品牌调性",
+    "追求less is more理念，提升品质感",
+  ],
+  '高级感': [
+    "运用黑白灰配色和精致排版，彰显品质",
+    "采用奢侈品广告风格，传递高端定位",
+    "注重细节和质感，提升品牌调性",
+  ],
+  '活泼': [
+    "使用明快色彩和跳动元素，充满活力",
+    "采用可爱插画和趣味互动，吸引注意",
+    "结合轻松音乐和欢快节奏，营造愉悦氛围",
+  ],
+};
 
-export function generateIdeas(brief: Brief, type: IdeaType, count: number = 5): Idea[] {
+const allStyles = ['潮流', '温情', '搞笑', '科技感', '复古', '简约', '高级感', '活泼'];
+
+export function generateIdeas(
+  brief: Brief, 
+  type: IdeaType, 
+  count: number = 5,
+  selectedStyles: string[] = []
+): Idea[] {
   const ideas: Idea[] = [];
   const { brand, audience, constraints } = brief;
+  
+  const stylesToUse = selectedStyles.length > 0 ? selectedStyles : allStyles;
 
   for (let i = 0; i < count; i++) {
     const templates = type === 'title' || type === 'poster' 
@@ -42,10 +92,15 @@ export function generateIdeas(brief: Brief, type: IdeaType, count: number = 5): 
       : scriptTemplates[type] || scriptTemplates.script;
 
     const template = templates[Math.floor(Math.random() * templates.length)];
+    
+    const currentStyle = stylesToUse[Math.floor(Math.random() * stylesToUse.length)];
+    const styleDesc = styleTemplates[currentStyle]?.[Math.floor(Math.random() * 3)] || '';
+    
     const content = template
       .replace(/{brand}/g, brand.name || '品牌')
       .replace(/{topic}/g, constraints.requirements || '创意主题')
-      .replace(/{style}/g, styles[Math.floor(Math.random() * styles.length)]);
+      .replace(/{style}/g, currentStyle) + 
+      (styleDesc ? `\n\n风格说明：${styleDesc}` : '');
 
     const title = type === 'title' 
       ? titleTemplates[Math.floor(Math.random() * titleTemplates.length)]
@@ -59,7 +114,7 @@ export function generateIdeas(brief: Brief, type: IdeaType, count: number = 5): 
       type,
       title,
       content,
-      style: [styles[Math.floor(Math.random() * styles.length)]],
+      style: [currentStyle],
       cost: ['high', 'medium', 'low'][Math.floor(Math.random() * 3)] as 'high' | 'medium' | 'low',
       tags: [type, audience.ageRange, brand.tone].filter(Boolean),
       liked: false,

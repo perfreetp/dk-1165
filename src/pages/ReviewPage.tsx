@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   MessageSquare, 
   Star, 
@@ -8,16 +8,30 @@ import {
   Download,
   CheckCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Users,
+  Plus,
+  X,
+  UserPlus
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { generateStoryboard } from '../services/aiService';
-import type { Idea, Review, ReviewScores, Proposal } from '../types';
+import type { Idea, Review, ReviewScores, Proposal, Comment } from '../types';
 
 export function ReviewPage() {
-  const { ideas, reviews, proposals, addReview, addProposal } = useStore();
-  const likedIdeas = ideas.filter(idea => idea.liked);
+  const { 
+    ideas, 
+    reviews, 
+    proposals, 
+    colleagues,
+    selectedForProposal,
+    addReview, 
+    addProposal,
+    addColleague,
+    removeColleague
+  } = useStore();
 
+  const likedIdeas = ideas.filter(idea => idea.liked);
   const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
   const [reviewerName, setReviewerName] = useState('');
   const [scores, setScores] = useState<ReviewScores>({
@@ -28,6 +42,10 @@ export function ReviewPage() {
   const [comment, setComment] = useState('');
   const [showStoryboard, setShowStoryboard] = useState(false);
   const [proposalName, setProposalName] = useState('');
+  const [isAddingColleague, setIsAddingColleague] = useState(false);
+  const [newColleagueName, setNewColleagueName] = useState('');
+  const [assignModal, setAssignModal] = useState<{ ideaId: string; ideaTitle: string } | null>(null);
+  const [selectedColleagues, setSelectedColleagues] = useState<string[]>([]);
 
   const handleSubmitReview = () => {
     if (!selectedIdea || !reviewerName) return;
@@ -53,14 +71,49 @@ export function ReviewPage() {
     setScores({ creativity: 0, feasibility: 0, alignment: 0 });
   };
 
+  const handleAddColleague = () => {
+    if (newColleagueName.trim()) {
+      addColleague(newColleagueName.trim());
+      setNewColleagueName('');
+      setIsAddingColleague(false);
+    }
+  };
+
+  const handleAssignToColleagues = () => {
+    if (!assignModal || selectedColleagues.length === 0) return;
+    
+    selectedColleagues.forEach(colleague => {
+      const review: Review = {
+        id: `review-${Date.now()}-${colleague}`,
+        ideaId: assignModal.ideaId,
+        reviewer: colleague,
+        scores: { creativity: 0, feasibility: 0, alignment: 0 },
+        comments: [],
+        status: 'pending',
+        createdAt: Date.now(),
+      };
+      addReview(review);
+    });
+    
+    setAssignModal(null);
+    setSelectedColleagues([]);
+  };
+
   const handleGenerateProposal = () => {
-    if (!proposalName.trim() || likedIdeas.length === 0) return;
+    if (!proposalName.trim()) return;
+
+    const selectedIdeasList = ideas.filter(idea => selectedForProposal.includes(idea.id));
+    
+    if (selectedIdeasList.length === 0) {
+      alert('请先在方案池中选择入选方案');
+      return;
+    }
 
     const proposal: Proposal = {
       id: `proposal-${Date.now()}`,
       name: proposalName,
-      ideaIds: likedIdeas.map(i => i.id),
-      outline: generateProposalOutline(likedIdeas),
+      ideaIds: selectedForProposal,
+      outline: generateProposalOutline(selectedIdeasList),
       status: 'draft',
       createdAt: Date.now(),
     };
@@ -69,22 +122,23 @@ export function ReviewPage() {
     setProposalName('');
   };
 
-  const generateProposalOutline = (ideas: Idea[]): string => {
+  const generateProposalOutline = (selectedIdeas: Idea[]): string => {
     const outline = `# 创意提案大纲
 
 ## 项目概述
-基于Brief要求，整合 ${ideas.length} 个创意方案
+整合 ${selectedIdeas.length} 个入选创意方案
 
 ---
 
 ## 创意方案
 
-${ideas.map((idea, index) => `
+${selectedIdeas.map((idea, index) => `
 ### ${index + 1}. ${idea.title}
 
 **类型**: ${idea.type === 'title' ? '标题' : idea.type === 'script' ? '脚本' : idea.type === 'poster' ? '海报文案' : '活动玩法'}
 **成本评估**: ${idea.cost === 'high' ? '高' : idea.cost === 'medium' ? '中' : '低'}
 **风格**: ${idea.style.join(', ')}
+**标签**: ${idea.tags.join(', ')}
 
 #### 详细内容
 ${idea.content}
@@ -95,7 +149,7 @@ ${idea.content}
 
 ## 核心亮点
 
-${ideas.slice(0, 3).map((idea, index) => `
+${selectedIdeas.slice(0, 3).map((idea, index) => `
 ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
 `).join('\n')}
 
@@ -133,8 +187,12 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
     return reviews.filter(r => r.ideaId === ideaId);
   };
 
+  const getPendingReviews = () => {
+    return reviews.filter(r => r.status === 'pending' && r.scores.creativity === 0);
+  };
+
   const averageScore = (ideaId: string) => {
-    const ideaReviews = getIdeaReviews(ideaId);
+    const ideaReviews = getIdeaReviews(ideaId).filter(r => r.scores.creativity > 0);
     if (ideaReviews.length === 0) return null;
 
     const total = ideaReviews.reduce((acc, review) => {
@@ -142,6 +200,11 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
     }, 0);
 
     return (total / ideaReviews.length).toFixed(1);
+  };
+
+  const allReviewComments = (ideaId: string): Comment[] => {
+    const ideaReviews = getIdeaReviews(ideaId);
+    return ideaReviews.flatMap(r => r.comments).sort((a, b) => b.createdAt - a.createdAt);
   };
 
   return (
@@ -163,9 +226,14 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
             transition={{ delay: 0.1 }}
             className="card"
           >
-            <div className="flex items-center gap-3 mb-6">
-              <MessageSquare className="w-6 h-6 text-primary" />
-              <h2 className="text-xl font-bold text-slate-100">选择方案进行评审</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <MessageSquare className="w-6 h-6 text-primary" />
+                <h2 className="text-xl font-bold text-slate-100">待评审方案</h2>
+              </div>
+              <span className="px-3 py-1 bg-primary/20 text-primary text-sm rounded-full">
+                {likedIdeas.length} 个方案
+              </span>
             </div>
 
             {likedIdeas.length === 0 ? (
@@ -177,33 +245,73 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
               <div className="space-y-3">
                 {likedIdeas.map(idea => {
                   const avgScore = averageScore(idea.id);
+                  const ideaReviews = getIdeaReviews(idea.id);
+                  const pendingReviews = ideaReviews.filter(r => r.status === 'pending' && r.scores.creativity === 0);
+                  
                   return (
-                    <button
+                    <div
                       key={idea.id}
-                      onClick={() => setSelectedIdea(idea)}
-                      className={`w-full text-left p-4 rounded-lg border transition-all ${
+                      className={`p-4 rounded-lg border transition-all cursor-pointer ${
                         selectedIdea?.id === idea.id
                           ? 'bg-primary/20 border-primary'
                           : 'bg-dark-200 border-slate-700 hover:border-slate-600'
                       }`}
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
+                      <div className="flex items-start justify-between mb-2">
+                        <div 
+                          className="flex-1 cursor-pointer"
+                          onClick={() => setSelectedIdea(idea)}
+                        >
                           <h4 className="font-medium text-slate-100 mb-1">
                             {idea.title}
                           </h4>
                           <p className="text-sm text-slate-400 line-clamp-2">
-                            {idea.content.substring(0, 100)}...
+                            {idea.content.substring(0, 80)}...
                           </p>
                         </div>
-                        {avgScore && (
-                          <div className="flex items-center gap-1 text-yellow-400 ml-4">
-                            <Star className="w-5 h-5 fill-current" />
-                            <span className="font-bold">{avgScore}</span>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {avgScore ? (
+                            <div className="flex items-center gap-1 text-yellow-400">
+                              <Star className="w-5 h-5 fill-current" />
+                              <span className="font-bold">{avgScore}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-500">待评审</span>
+                          )}
+                          {pendingReviews.length > 0 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAssignModal({ ideaId: idea.id, ideaTitle: idea.title });
+                                setSelectedColleagues(pendingReviews.map(r => r.reviewer));
+                              }}
+                              className="ml-2 px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded flex items-center gap-1"
+                            >
+                              <Clock className="w-3 h-3" />
+                              {pendingReviews.length}人待评
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAssignModal({ ideaId: idea.id, ideaTitle: idea.title });
+                            }}
+                            className="ml-2 p-1 bg-dark hover:bg-dark-100 rounded text-slate-400 hover:text-primary transition-colors"
+                            title="分配评审"
+                          >
+                            <UserPlus className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                    </button>
+                      
+                      {allReviewComments(idea.id).length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-slate-700">
+                          <p className="text-xs text-slate-500">
+                            {allReviewComments(idea.id).length} 条评论
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -245,10 +353,10 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
                     { key: 'creativity' as const, label: '创意性', icon: '💡' },
                     { key: 'feasibility' as const, label: '可行性', icon: '⚙️' },
                     { key: 'alignment' as const, label: '契合度', icon: '🎯' },
-                  ].map(({ key, label, icon }) => (
+                  ].map(({ key, label }) => (
                     <div key={key}>
                       <label className="block text-sm font-medium text-slate-300 mb-2">
-                        {icon} {label}
+                        {label}
                       </label>
                       <div className="flex gap-2">
                         {[1, 2, 3, 4, 5].map(score => (
@@ -295,30 +403,32 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
               {getIdeaReviews(selectedIdea.id).length > 0 && (
                 <div className="border-t border-slate-700 pt-4">
                   <h4 className="text-sm font-medium text-slate-300 mb-3">
-                    历史评审 ({getIdeaReviews(selectedIdea.id).length})
+                    评审记录 ({getIdeaReviews(selectedIdea.id).filter(r => r.scores.creativity > 0).length})
                   </h4>
                   <div className="space-y-3">
-                    {getIdeaReviews(selectedIdea.id).map(review => (
-                      <div key={review.id} className="bg-dark-200 rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium text-slate-100">{review.reviewer}</span>
-                          <div className="flex gap-1 text-yellow-400">
-                            {[1, 2, 3, 4, 5].map(star => {
-                              const avg = Math.round((review.scores.creativity + review.scores.feasibility + review.scores.alignment) / 3);
-                              return (
-                                <Star
-                                  key={star}
-                                  className={`w-4 h-4 ${avg >= star ? 'fill-current' : ''}`}
-                                />
-                              );
-                            })}
+                    {getIdeaReviews(selectedIdea.id)
+                      .filter(r => r.scores.creativity > 0)
+                      .map(review => (
+                        <div key={review.id} className="bg-dark-200 rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium text-slate-100">{review.reviewer}</span>
+                            <div className="flex gap-1 text-yellow-400">
+                              {[1, 2, 3, 4, 5].map(star => {
+                                const avg = Math.round((review.scores.creativity + review.scores.feasibility + review.scores.alignment) / 3);
+                                return (
+                                  <Star
+                                    key={star}
+                                    className={`w-4 h-4 ${avg >= star ? 'fill-current' : ''}`}
+                                  />
+                                );
+                              })}
+                            </div>
                           </div>
+                          {review.comments.map(c => (
+                            <p key={c.id} className="text-sm text-slate-400">{c.content}</p>
+                          ))}
                         </div>
-                        {review.comments.map(c => (
-                          <p key={c.id} className="text-sm text-slate-400">{c.content}</p>
-                        ))}
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 </div>
               )}
@@ -356,6 +466,85 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
             transition={{ delay: 0.2 }}
             className="card sticky top-24"
           >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-bold text-slate-100">同事管理</h3>
+              </div>
+              <button
+                onClick={() => setIsAddingColleague(true)}
+                className="p-1 rounded hover:bg-dark-200 text-slate-400 hover:text-primary transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+
+            {isAddingColleague && (
+              <div className="mb-4 flex gap-2">
+                <input
+                  type="text"
+                  value={newColleagueName}
+                  onChange={(e) => setNewColleagueName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddColleague()}
+                  placeholder="输入同事姓名"
+                  className="input-field flex-1"
+                  autoFocus
+                />
+                <button
+                  onClick={handleAddColleague}
+                  className="px-3 py-2 bg-primary text-white rounded-lg hover:bg-primary-600 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {colleagues.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-4">
+                  暂无同事，请添加
+                </p>
+              ) : (
+                colleagues.map(name => {
+                  const pendingCount = reviews.filter(
+                    r => r.reviewer === name && r.status === 'pending' && r.scores.creativity === 0
+                  ).length;
+                  
+                  return (
+                    <div
+                      key={name}
+                      className="flex items-center justify-between p-2 bg-dark-200 rounded-lg group"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-sm font-bold">
+                          {name.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-sm text-slate-300">{name}</span>
+                        {pendingCount > 0 && (
+                          <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded">
+                            待评 {pendingCount}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => removeColleague(name)}
+                        className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition-all"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3 }}
+            className="card"
+          >
             <div className="flex items-center gap-2 mb-4">
               <FileText className="w-5 h-5 text-primary" />
               <h3 className="text-lg font-bold text-slate-100">提案生成</h3>
@@ -375,9 +564,16 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
                 />
               </div>
 
+              <div className="p-3 bg-dark-200 rounded-lg">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-400">入选方案数</span>
+                  <span className="text-green-400 font-bold">{selectedForProposal.length}</span>
+                </div>
+              </div>
+
               <button
                 onClick={handleGenerateProposal}
-                disabled={!proposalName.trim() || likedIdeas.length === 0}
+                disabled={!proposalName.trim() || selectedForProposal.length === 0}
                 className="w-full btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Download className="w-5 h-5" />
@@ -394,39 +590,134 @@ ${index + 1}. **${idea.title}** - ${idea.content.split('\n')[0]}
                 </button>
               )}
 
-              <div className="border-t border-slate-700 pt-4">
-                <div className="space-y-2">
-                  {proposals.map(proposal => (
-                    <div key={proposal.id} className="bg-dark-200 rounded-lg p-3">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h4 className="font-medium text-slate-100 text-sm">
-                            {proposal.name}
-                          </h4>
-                          <p className="text-xs text-slate-500 mt-1">
-                            包含 {proposal.ideaIds.length} 个方案
-                          </p>
+              {proposals.length > 0 && (
+                <div className="border-t border-slate-700 pt-4">
+                  <div className="space-y-2">
+                    {proposals.map(proposal => (
+                      <div key={proposal.id} className="bg-dark-200 rounded-lg p-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-medium text-slate-100 text-sm">
+                              {proposal.name}
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-1">
+                              包含 {proposal.ideaIds.length} 个方案
+                            </p>
+                          </div>
+                          {proposal.status === 'draft' ? (
+                            <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded">
+                              <Clock className="w-3 h-3 inline mr-1" />
+                              草稿
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">
+                              <CheckCircle className="w-3 h-3 inline mr-1" />
+                              完成
+                            </span>
+                          )}
                         </div>
-                        {proposal.status === 'draft' ? (
-                          <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded">
-                            <Clock className="w-3 h-3 inline mr-1" />
-                            草稿
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded">
-                            <CheckCircle className="w-3 h-3 inline mr-1" />
-                            完成
-                          </span>
-                        )}
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </motion.div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {assignModal && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setAssignModal(null)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="fixed inset-0 flex items-center justify-center z-50 p-4"
+            >
+              <div className="bg-dark-100 rounded-2xl border border-slate-700 p-8 max-w-md w-full">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-slate-100">分配评审</h3>
+                  <button
+                    onClick={() => setAssignModal(null)}
+                    className="text-slate-400 hover:text-slate-100"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <p className="text-sm text-slate-400 mb-4">
+                  为「{assignModal.ideaTitle}」分配评审人
+                </p>
+
+                <div className="space-y-2 mb-6">
+                  {colleagues.length === 0 ? (
+                    <p className="text-sm text-slate-500 text-center py-4">
+                      请先添加同事
+                    </p>
+                  ) : (
+                    colleagues.map(name => (
+                      <button
+                        key={name}
+                        onClick={() => {
+                          setSelectedColleagues(prev =>
+                            prev.includes(name)
+                              ? prev.filter(n => n !== name)
+                              : [...prev, name]
+                          );
+                        }}
+                        className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                          selectedColleagues.includes(name)
+                            ? 'bg-primary/20 border-primary'
+                            : 'bg-dark-200 border-slate-700 hover:border-slate-600'
+                        }`}
+                      >
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                          selectedColleagues.includes(name)
+                            ? 'border-primary bg-primary'
+                            : 'border-slate-600'
+                        }`}>
+                          {selectedColleagues.includes(name) && (
+                            <CheckCircle className="w-3 h-3 text-white" />
+                          )}
+                        </div>
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-sm font-bold">
+                          {name.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-slate-100">{name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => setAssignModal(null)}
+                    className="flex-1 btn-secondary"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleAssignToColleagues}
+                    disabled={selectedColleagues.length === 0}
+                    className="flex-1 btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <UserPlus className="w-5 h-5" />
+                    确认分配 ({selectedColleagues.length})
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

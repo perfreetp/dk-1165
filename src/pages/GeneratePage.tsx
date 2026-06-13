@@ -10,7 +10,8 @@ import {
   Heart,
   Copy,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  X
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { generateIdeas } from '../services/aiService';
@@ -27,10 +28,11 @@ const styles = ['潮流', '温情', '搞笑', '科技感', '复古', '简约', '
 
 export function GeneratePage() {
   const navigate = useNavigate();
-  const { currentBrief, addIdea } = useStore();
+  const { currentBrief, addIdea, ideas } = useStore();
   const [selectedType, setSelectedType] = useState<IdeaType>('title');
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [generatedIdeas, setGeneratedIdeas] = useState<Idea[]>([]);
+  const [likedIdeaIds, setLikedIdeaIds] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -45,15 +47,59 @@ export function GeneratePage() {
     
     await new Promise(resolve => setTimeout(resolve, 1500));
     
-    const ideas = generateIdeas(currentBrief, selectedType, 6);
-    setGeneratedIdeas(ideas);
+    const ideas = generateIdeas(currentBrief, selectedType, 6, selectedStyles);
+    
+    const existingTitles = new Set(
+      ideas.map(i => `${i.title}-${i.type}`)
+    );
+    const existingInPool = ideas.filter(idea => 
+      ideas.some(existing => 
+        existing.id !== idea.id && 
+        existing.title === idea.title && 
+        existing.type === idea.type
+      )
+    );
+    
+    const existingPoolTitles = new Set(
+      ideas.map(i => `${i.title}-${i.type}`)
+    );
+    
+    const newIdeas = ideas.map(idea => {
+      const isInPool = existingPoolTitles.has(`${idea.title}-${idea.type}`);
+      return { ...idea, liked: isInPool };
+    });
+    
+    setGeneratedIdeas(newIdeas);
+    
+    const newLikedIds = new Set<string>();
+    newIdeas.forEach(idea => {
+      if (existingPoolTitles.has(`${idea.title}-${idea.type}`)) {
+        newLikedIds.add(idea.id);
+      }
+    });
+    setLikedIdeaIds(newLikedIds);
+    
     setIsGenerating(false);
   };
 
   const handleLike = (idea: Idea) => {
-    if (!idea.liked) {
+    const isInPool = ideas.some(
+      i => i.title === idea.title && i.content === idea.content && i.type === idea.type
+    );
+    
+    if (!isInPool) {
       addIdea({ ...idea, liked: true });
     }
+    
+    setLikedIdeaIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(idea.id)) {
+        newSet.delete(idea.id);
+      } else {
+        newSet.add(idea.id);
+      }
+      return newSet;
+    });
   };
 
   const toggleStyle = (style: string) => {
@@ -62,10 +108,19 @@ export function GeneratePage() {
     );
   };
 
+  const clearStyles = () => {
+    setSelectedStyles([]);
+  };
+
   const handleCopy = (id: string, content: string) => {
     navigator.clipboard.writeText(content);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const isIdeaLiked = (idea: Idea) => {
+    return likedIdeaIds.has(idea.id) || 
+      ideas.some(i => i.title === idea.title && i.content === idea.content && i.type === idea.type);
   };
 
   if (!currentBrief) {
@@ -131,7 +186,25 @@ export function GeneratePage() {
             transition={{ delay: 0.2 }}
             className="card"
           >
-            <h3 className="text-lg font-bold text-slate-100 mb-4">风格筛选</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-100">
+                风格筛选
+                {selectedStyles.length > 0 && (
+                  <span className="ml-2 text-sm font-normal text-primary">
+                    (已选 {selectedStyles.length} 个)
+                  </span>
+                )}
+              </h3>
+              {selectedStyles.length > 0 && (
+                <button
+                  onClick={clearStyles}
+                  className="text-sm text-slate-400 hover:text-slate-100 flex items-center gap-1"
+                >
+                  <X className="w-4 h-4" />
+                  清空
+                </button>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               {styles.map(style => (
                 <button
@@ -147,6 +220,11 @@ export function GeneratePage() {
                 </button>
               ))}
             </div>
+            {selectedStyles.length > 0 && (
+              <p className="mt-3 text-sm text-slate-500">
+                仅生成符合所选风格的创意
+              </p>
+            )}
           </motion.div>
 
           <motion.button
@@ -177,53 +255,66 @@ export function GeneratePage() {
 
           {generatedIdeas.length > 0 && (
             <div className="space-y-4">
-              {generatedIdeas.map((idea, index) => (
-                <motion.div
-                  key={idea.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="card group"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h4 className="text-lg font-bold text-slate-100 mb-1">
-                        {idea.title}
-                      </h4>
-                      <div className="flex gap-2">
-                        {idea.style.map(tag => (
-                          <span key={tag} className="px-2 py-1 bg-primary/20 text-primary text-xs rounded">
-                            {tag}
-                          </span>
-                        ))}
+              {generatedIdeas.map((idea, index) => {
+                const isLiked = isIdeaLiked(idea);
+                return (
+                  <motion.div
+                    key={idea.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="card group"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <h4 className="text-lg font-bold text-slate-100 mb-1">
+                          {idea.title}
+                        </h4>
+                        <div className="flex gap-2 flex-wrap">
+                          {idea.style.map(tag => (
+                            <span key={tag} className="px-2 py-1 bg-primary/20 text-primary text-xs rounded">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => handleCopy(idea.id, idea.content)}
+                          className="p-2 rounded-lg bg-dark-200 hover:bg-dark text-slate-400 hover:text-slate-100 transition-colors"
+                          title="复制内容"
+                        >
+                          {copiedId === idea.id ? (
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                          ) : (
+                            <Copy className="w-5 h-5" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleLike(idea)}
+                          className="p-2 rounded-lg bg-dark-200 hover:bg-dark transition-colors"
+                          title={isLiked ? "已收藏" : "收藏到方案池"}
+                        >
+                          <Heart className={`w-5 h-5 ${
+                            isLiked 
+                              ? 'fill-primary text-primary' 
+                              : 'text-slate-400 hover:text-primary'
+                          }`} />
+                        </button>
                       </div>
                     </div>
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleCopy(idea.id, idea.content)}
-                        className="p-2 rounded-lg bg-dark-200 hover:bg-dark text-slate-400 hover:text-slate-100 transition-colors"
-                        title="复制内容"
-                      >
-                        {copiedId === idea.id ? (
-                          <CheckCircle className="w-5 h-5 text-green-500" />
-                        ) : (
-                          <Copy className="w-5 h-5" />
-                        )}
-                      </button>
-                      <button
-                        onClick={() => handleLike(idea)}
-                        className="p-2 rounded-lg bg-dark-200 hover:bg-dark text-slate-400 hover:text-primary transition-colors"
-                        title="收藏到方案池"
-                      >
-                        <Heart className={`w-5 h-5 ${idea.liked ? 'fill-primary text-primary' : ''}`} />
-                      </button>
-                    </div>
-                  </div>
-                  <p className="text-slate-400 text-sm whitespace-pre-line">
-                    {idea.content}
-                  </p>
-                </motion.div>
-              ))}
+                    <p className="text-slate-400 text-sm whitespace-pre-line">
+                      {idea.content}
+                    </p>
+                    {isLiked && (
+                      <div className="mt-2 text-xs text-primary flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" />
+                        已收藏到方案池
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
             </div>
           )}
         </div>

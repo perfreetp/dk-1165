@@ -10,7 +10,8 @@ import {
   Tag,
   CheckSquare,
   Square,
-  Send
+  Send,
+  Flag
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import type { Idea, CostLevel } from '../types';
@@ -31,7 +32,9 @@ export function PoolPage() {
   const { 
     ideas, 
     selectedIdeas, 
+    selectedForProposal,
     toggleIdeaSelection, 
+    toggleIdeaForProposal,
     clearSelection,
     toggleLike,
     deleteIdea,
@@ -59,7 +62,7 @@ export function PoolPage() {
     if (selectedIdeas.length >= 2) {
       const selected = ideas.filter(i => selectedIdeas.includes(i.id));
       setMergeTitle(`${selected.length}个方案合并`);
-      setMergeContent(selected.map(i => i.content).join('\n\n---\n\n'));
+      setMergeContent(selected.map(i => `【${i.title}】\n${i.content}`).join('\n\n---\n\n'));
       setIsMergeModalOpen(true);
     }
   };
@@ -112,8 +115,8 @@ export function PoolPage() {
                 <Layers className="w-6 h-6 text-primary" />
                 <h3 className="text-lg font-bold text-slate-100">筛选条件</h3>
               </div>
-              {selectedIdeas.length > 0 && (
-                <div className="flex gap-2">
+              <div className="flex gap-2">
+                {selectedIdeas.length > 0 && (
                   <button
                     onClick={handleMerge}
                     disabled={selectedIdeas.length < 2}
@@ -122,14 +125,16 @@ export function PoolPage() {
                     <Merge className="w-4 h-4" />
                     合并 ({selectedIdeas.length})
                   </button>
+                )}
+                {selectedIdeas.length > 0 && (
                   <button
                     onClick={clearSelection}
                     className="px-4 py-2 bg-dark-200 text-slate-400 rounded-lg hover:bg-dark hover:text-slate-100 transition-colors"
                   >
                     <X className="w-4 h-4" />
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             <div className="flex gap-4">
@@ -166,94 +171,125 @@ export function PoolPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {filteredIdeas.map((idea, index) => (
-                <motion.div
-                  key={idea.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="card group"
-                >
-                  <div className="flex items-start gap-4">
-                    <button
-                      onClick={() => toggleIdeaSelection(idea.id)}
-                      className="mt-1 text-slate-500 hover:text-primary transition-colors"
-                    >
-                      {selectedIdeas.includes(idea.id) ? (
-                        <CheckSquare className="w-5 h-5 text-primary" />
-                      ) : (
-                        <Square className="w-5 h-5" />
-                      )}
-                    </button>
+              {filteredIdeas.map((idea, index) => {
+                const isSelected = selectedIdeas.includes(idea.id);
+                const isForProposal = selectedForProposal.includes(idea.id);
+                
+                return (
+                  <motion.div
+                    key={idea.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className={`card group ${
+                      isForProposal ? 'ring-2 ring-green-500/50' : ''
+                    }`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <button
+                        onClick={() => toggleIdeaSelection(idea.id)}
+                        className="mt-1 text-slate-500 hover:text-primary transition-colors"
+                      >
+                        {isSelected ? (
+                          <CheckSquare className="w-5 h-5 text-primary" />
+                        ) : (
+                          <Square className="w-5 h-5" />
+                        )}
+                      </button>
 
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1">
-                          <h4 className="text-lg font-bold text-slate-100 mb-1">
-                            {idea.title}
-                          </h4>
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            <span className={`px-2 py-1 text-xs rounded border ${costColors[idea.cost]}`}>
-                              <DollarSign className="w-3 h-3 inline mr-1" />
-                              {costLabels[idea.cost]}
-                            </span>
-                            {idea.tags.map(tag => (
-                              <span key={tag} className="px-2 py-1 bg-dark-200 text-slate-400 text-xs rounded flex items-center gap-1">
-                                <Tag className="w-3 h-3" />
-                                {tag}
+                      <div className="flex-1">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="text-lg font-bold text-slate-100">
+                                {idea.title}
+                              </h4>
+                              {isForProposal && (
+                                <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded flex items-center gap-1">
+                                  <Flag className="w-3 h-3" />
+                                  入选提案
+                                </span>
+                              )}
+                              {idea.tags.includes('merged') && (
+                                <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded">
+                                  合并方案
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              <span className={`px-2 py-1 text-xs rounded border ${costColors[idea.cost]}`}>
+                                <DollarSign className="w-3 h-3 inline mr-1" />
+                                {costLabels[idea.cost]}
                               </span>
-                            ))}
+                              {idea.style.map(tag => (
+                                <span key={tag} className="px-2 py-1 bg-dark-200 text-slate-400 text-xs rounded flex items-center gap-1">
+                                  <Tag className="w-3 h-3" />
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => toggleIdeaForProposal(idea.id)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                isForProposal 
+                                  ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400' 
+                                  : 'bg-dark-200 hover:bg-dark text-slate-400 hover:text-green-400'
+                              }`}
+                              title={isForProposal ? "取消入选" : "标记入选提案"}
+                            >
+                              <Flag className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleEditTags(idea)}
+                              className="p-2 rounded-lg bg-dark-200 hover:bg-dark text-slate-400 hover:text-slate-100 transition-colors"
+                              title="编辑标签"
+                            >
+                              <Tag className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => toggleLike(idea.id)}
+                              className="p-2 rounded-lg bg-dark-200 hover:bg-dark text-slate-400 hover:text-red-400 transition-colors"
+                              title="取消收藏"
+                            >
+                              <Heart className="w-4 h-4 fill-current" />
+                            </button>
+                            <button
+                              onClick={() => deleteIdea(idea.id)}
+                              className="p-2 rounded-lg bg-dark-200 hover:bg-dark text-slate-400 hover:text-red-400 transition-colors"
+                              title="删除"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
 
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => handleEditTags(idea)}
-                            className="p-2 rounded-lg bg-dark-200 hover:bg-dark text-slate-400 hover:text-slate-100 transition-colors"
-                            title="编辑标签"
-                          >
-                            <Tag className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => toggleLike(idea.id)}
-                            className="p-2 rounded-lg bg-dark-200 hover:bg-dark text-slate-400 hover:text-red-400 transition-colors"
-                            title="取消收藏"
-                          >
-                            <Heart className="w-4 h-4 fill-current" />
-                          </button>
-                          <button
-                            onClick={() => deleteIdea(idea.id)}
-                            className="p-2 rounded-lg bg-dark-200 hover:bg-dark text-slate-400 hover:text-red-400 transition-colors"
-                            title="删除"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        <p className="text-slate-400 text-sm whitespace-pre-line">
+                          {idea.content}
+                        </p>
+
+                        <div className="flex gap-2 mt-4">
+                          {(['low', 'medium', 'high'] as CostLevel[]).map(cost => (
+                            <button
+                              key={cost}
+                              onClick={() => handleCostChange(idea.id, cost)}
+                              className={`px-3 py-1 text-xs rounded border transition-all ${
+                                idea.cost === cost
+                                  ? costColors[cost]
+                                  : 'bg-dark-200 border-slate-700 text-slate-500 hover:border-slate-600'
+                              }`}
+                            >
+                              {costLabels[cost]}
+                            </button>
+                          ))}
                         </div>
                       </div>
-
-                      <p className="text-slate-400 text-sm whitespace-pre-line">
-                        {idea.content}
-                      </p>
-
-                      <div className="flex gap-2 mt-4">
-                        {(['low', 'medium', 'high'] as CostLevel[]).map(cost => (
-                          <button
-                            key={cost}
-                            onClick={() => handleCostChange(idea.id, cost)}
-                            className={`px-3 py-1 text-xs rounded border transition-all ${
-                              idea.cost === cost
-                                ? costColors[cost]
-                                : 'bg-dark-200 border-slate-700 text-slate-500 hover:border-slate-600'
-                            }`}
-                          >
-                            {costLabels[cost]}
-                          </button>
-                        ))}
-                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -278,7 +314,29 @@ export function PoolPage() {
                 <span className="text-slate-400">已选中</span>
                 <span className="text-xl font-bold text-primary">{selectedIdeas.length}</span>
               </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">入选提案</span>
+                <span className="text-xl font-bold text-green-400">{selectedForProposal.length}</span>
+              </div>
             </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3 }}
+            className="card"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Flag className="w-5 h-5 text-green-400" />
+              <h3 className="text-lg font-bold text-slate-100">提案入选</h3>
+            </div>
+            <p className="text-sm text-slate-500 mb-4">
+              点击方案卡片上的 <Flag className="w-4 h-4 inline text-green-400" /> 按钮将其标记为入选方案
+            </p>
+            <p className="text-sm text-slate-500">
+              入选方案将用于生成提案大纲
+            </p>
           </motion.div>
         </div>
       </div>
@@ -349,7 +407,7 @@ export function PoolPage() {
                       className="flex-1 btn-primary flex items-center justify-center gap-2"
                     >
                       <Merge className="w-5 h-5" />
-                      确认合并
+                      确认合并（保留在方案池）
                     </button>
                   </div>
                 </div>
